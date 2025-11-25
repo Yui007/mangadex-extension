@@ -27,6 +27,9 @@ The MangaDex Downloader icon will now appear in your browser's toolbar.
 
 ## How to Use
 
+### Important Tip
+ - Make Sure to Enable Long Strip in Mangadex For chapters otherwise the extension will not work.
+
 ### On a Chapter Page (`mangadex.org/chapter/...`)
 
 1.  Navigate to any manga chapter on MangaDex.
