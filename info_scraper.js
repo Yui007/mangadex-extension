@@ -25,8 +25,19 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       }
     });
 
-    const mangaTitleElement = document.querySelector('span.text-2xl.font-bold');
-    const mangaTitle = mangaTitleElement ? mangaTitleElement.textContent.trim().replace(/[<>:"/\\|?*]+/g, '') : 'Manga';
+    // Try multiple selectors since MangaDex's DOM changes over time
+    const mangaTitleElement = document.querySelector('p.mb-1')
+      || document.querySelector('div.font-normal.line-clamp-2');
+    let mangaTitle;
+    if (mangaTitleElement) {
+      mangaTitle = mangaTitleElement.textContent.trim().replace(/[<>:"/\\|?*]+/g, '');
+    } else {
+      // Fallback: extract from URL slug (/title/{uuid}/{slug})
+      const urlMatch = window.location.pathname.match(/^\/title\/[^/]+\/(.+)/);
+      mangaTitle = urlMatch
+        ? decodeURIComponent(urlMatch[1]).replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()).replace(/[<>:"/\\|?*]+/g, '')
+        : 'Manga';
+    }
 
     // Send the structured chapter list back to the popup.
     chrome.runtime.sendMessage({
