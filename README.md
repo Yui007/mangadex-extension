@@ -8,6 +8,7 @@ A powerful and customizable browser extension to download manga chapters from Ma
 
 -   **Multiple Download Formats:** Save chapters as individual **Images**, compressed **ZIP** archives, or portable **PDF** documents.
 -   **Bulk & Single Chapter Downloads:** Quickly download the chapter you are currently viewing or queue multiple chapters for download from a manga's main page.
+-   **Multi-Select Controls:** Use the **Select All** checkbox to toggle all chapters at once, or hold **Shift** while clicking to select a range of chapters between your last selection and the current one.
 -   **Language Filtering:** Easily find and download chapters in your preferred language.
 -   **Advanced Concurrency Control:** Fine-tune the number of simultaneous chapter and image downloads to match your network speed and system capabilities.
 -   **Robust Download Engine:** Features an automatic retry mechanism for failed images and intelligent page-load detection to prevent incomplete downloads.
@@ -41,7 +42,10 @@ The MangaDex Downloader icon will now appear in your browser's toolbar.
 1.  Navigate to the main page for any manga series.
 2.  Click the extension icon.
 3.  Use the **language dropdown** to filter the chapter list.
-4.  **Check the boxes** next to the chapters you wish to download.
+4.  **Select chapters** using any of these methods:
+    -   **Individually:** Check the box next to each chapter you want.
+    -   **Select All:** Use the **"Select All"** checkbox at the top to check/uncheck all chapters at once.
+    -   **Range Select:** Check a chapter, then hold **Shift** and check another chapter — all chapters between them will be selected (or deselected) as well.
 5.  Click the **"Download Selected"** button. The chapters will be added to a queue and downloaded in the background.
 
 ## Settings

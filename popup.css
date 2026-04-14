@@ -89,10 +89,42 @@ select:focus {
   color: #9ca3af; /* slate-400 */
 }
 
+#chapterControls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 16px;
+  padding: 8px 12px;
+  background-color: #374151;
+  border-radius: 6px;
+}
+
+.select-all-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.select-all-row input[type="checkbox"] {
+  accent-color: #8b5cf6;
+}
+
+.select-all-row label {
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#selectionCounter {
+  font-size: 12px;
+  color: #9ca3af;
+  white-space: nowrap;
+}
+
 #chapterList {
   max-height: 250px;
   overflow-y: auto;
-  margin-top: 16px;
+  margin-top: 8px;
   padding-right: 8px;
   display: flex;
   flex-direction: column;

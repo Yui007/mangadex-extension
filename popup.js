@@ -1,13 +1,13 @@
 document.addEventListener('DOMContentLoaded', () => {
-  // Main View Elements
   const downloadChapterBtn = document.getElementById('downloadChapterBtn');
   const mangaView = document.getElementById('mangaView');
   const languageSelect = document.getElementById('languageSelect');
   const chapterListDiv = document.getElementById('chapterList');
   const downloadSelectedBtn = document.getElementById('downloadSelectedBtn');
   const statusDiv = document.getElementById('status');
+  const selectAllCheckbox = document.getElementById('selectAllCheckbox');
+  const selectionCounter = document.getElementById('selectionCounter');
 
-  // Settings View Elements
   const downloadAsInput = document.getElementById('downloadAs');
   const concurrentChaptersInput = document.getElementById('concurrentChapters');
   const concurrentImagesInput = document.getElementById('concurrentImages');
@@ -18,14 +18,13 @@ document.addEventListener('DOMContentLoaded', () => {
   const saveSettingsBtn = document.getElementById('saveSettingsBtn');
   const settingsStatusDiv = document.getElementById('settingsStatus');
 
-  // Tab Elements
   const tabLinks = document.querySelectorAll('.tab-link');
   const tabContents = document.querySelectorAll('.tab-content');
 
   let currentTab;
   let mangaTitle = 'Manga';
+  let lastCheckedCheckbox = null;
 
-  // --- Initialization ---
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     currentTab = tabs[0];
     if (currentTab.url.includes('mangadex.org/chapter/')) {
@@ -40,8 +39,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   loadAndDisplaySettings();
 
-  // --- Event Listeners ---
-  // Tab switching
   tabLinks.forEach(link => {
     link.addEventListener('click', () => {
       const tabId = link.dataset.tab;
@@ -54,10 +51,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // Main View Listeners
   downloadChapterBtn.addEventListener('click', () => {
     statusDiv.textContent = 'Starting chapter download...';
-    // We need to get the chapter and manga title from the page content
     chrome.scripting.executeScript({
         target: { tabId: currentTab.id },
         func: () => {
@@ -80,6 +75,32 @@ document.addEventListener('DOMContentLoaded', () => {
     requestChaptersFromPage(languageSelect.value);
   });
 
+  selectAllCheckbox.addEventListener('change', () => {
+    const checkboxes = chapterListDiv.querySelectorAll('input[type="checkbox"]');
+    checkboxes.forEach(cb => { cb.checked = selectAllCheckbox.checked; });
+    updateSelectionState();
+  });
+
+  chapterListDiv.addEventListener('click', (e) => {
+    const checkbox = e.target.closest('input[type="checkbox"]');
+    if (!checkbox) return;
+
+    if (e.shiftKey && lastCheckedCheckbox) {
+      const checkboxes = Array.from(chapterListDiv.querySelectorAll('input[type="checkbox"]'));
+      const start = checkboxes.indexOf(lastCheckedCheckbox);
+      const end = checkboxes.indexOf(checkbox);
+      if (start !== -1 && end !== -1) {
+        const [lo, hi] = start < end ? [start, end] : [end, start];
+        for (let i = lo; i <= hi; i++) {
+          checkboxes[i].checked = checkbox.checked;
+        }
+      }
+    }
+
+    lastCheckedCheckbox = checkbox;
+    updateSelectionState();
+  });
+
   downloadSelectedBtn.addEventListener('click', () => {
     const selectedCheckboxes = Array.from(chapterListDiv.querySelectorAll('input:checked'));
     const selectedChapters = selectedCheckboxes.map(cb => {
@@ -99,7 +120,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Settings View Listeners
   saveSettingsBtn.addEventListener('click', async () => {
     const newSettings = {
       downloadAs: downloadAsInput.value,
@@ -115,7 +135,6 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => { settingsStatusDiv.textContent = ''; }, 2000);
   });
 
-  // --- Functions ---
   async function loadAndDisplaySettings() {
     const settings = await getSettings();
     downloadAsInput.value = settings.downloadAs;
@@ -139,6 +158,9 @@ document.addEventListener('DOMContentLoaded', () => {
     statusDiv.textContent = 'Loading chapters...';
     chapterListDiv.innerHTML = '';
     downloadSelectedBtn.disabled = true;
+    selectAllCheckbox.checked = false;
+    selectionCounter.textContent = '0 selected';
+    lastCheckedCheckbox = null;
 
     if (chrome.runtime.onMessage.hasListener(messageListener)) {
       chrome.runtime.onMessage.removeListener(messageListener);
@@ -153,9 +175,21 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  function updateSelectionState() {
+    const checkboxes = chapterListDiv.querySelectorAll('input[type="checkbox"]');
+    const checkedCount = chapterListDiv.querySelectorAll('input:checked').length;
+    const totalCount = checkboxes.length;
+
+    downloadSelectedBtn.disabled = checkedCount === 0;
+    selectAllCheckbox.checked = totalCount > 0 && checkedCount === totalCount;
+    selectAllCheckbox.indeterminate = checkedCount > 0 && checkedCount < totalCount;
+    selectionCounter.textContent = `${checkedCount} of ${totalCount} selected`;
+  }
+
   function populateChapterList(chapters) {
     if (chapters.length === 0) {
       statusDiv.textContent = 'No chapters found for this language.';
+      selectionCounter.textContent = '0 selected';
       return;
     }
 
@@ -174,12 +208,8 @@ document.addEventListener('DOMContentLoaded', () => {
       item.appendChild(label);
       chapterListDiv.appendChild(item);
     });
-    
-    chapterListDiv.addEventListener('change', () => {
-      const anyChecked = chapterListDiv.querySelector('input:checked') !== null;
-      downloadSelectedBtn.disabled = !anyChecked;
-    });
 
+    selectionCounter.textContent = `0 of ${chapters.length} selected`;
     statusDiv.textContent = `Found ${chapters.length} chapters.`;
   }
 });
