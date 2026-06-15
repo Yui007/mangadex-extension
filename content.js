@@ -224,6 +224,7 @@ function init() {
       let lastImageCount = 0;
       let totalPages = -1;
       let hasStarted = false;
+      let scrollAttempts = 0;
 
       console.log(`[stability] Starting: stabilityChecks=${settings.stabilityChecks}, timeout=${settings.overallTimeoutSeconds}s`);
 
@@ -234,6 +235,11 @@ function init() {
           console.log(`[stability] ${reason} but 0 images found, waiting...`);
           return;
         }
+        // For ZIP/PDF, require at least 2 images or matching totalPages — don't start with just 1
+        if (settings.downloadAs !== 'images' && imgs.length === 1 && totalPages !== 1) {
+          console.log(`[stability] ${reason} but only 1 image (totalPages=${totalPages}), waiting for more...`);
+          return;
+        }
         hasStarted = true;
         clearInterval(checkInterval);
         clearTimeout(safetyTimeout);
@@ -242,16 +248,39 @@ function init() {
         startDownloadProcess(settings, chapterInfo);
       };
 
-      // MutationObserver to detect when images are added to the DOM
+      // Force-scroll to trigger lazy loading of all chapter images
+      const forceScroll = () => {
+        if (hasStarted) return;
+        const scrollHeight = document.body.scrollHeight;
+        const viewportHeight = window.innerHeight;
+        if (scrollHeight <= viewportHeight + 100) return; // page is short, no need
+
+        // Scroll to bottom then back to top to trigger all lazy-loaded images
+        window.scrollTo(0, scrollHeight);
+        setTimeout(() => window.scrollTo(0, 0), 300);
+        scrollAttempts++;
+        console.log(`[stability] Force scroll #${scrollAttempts} (page height: ${scrollHeight}px)`);
+      };
+
+      // MutationObserver to detect when chapter images are added to the DOM
       const observer = new MutationObserver(() => {
         if (hasStarted) return;
         const imgs = getImageElements();
-        if (imgs.length > 0) {
-          tryStart(`MutationObserver detected ${imgs.length} images`);
+        if (imgs.length > lastImageCount) {
+          console.log(`[stability] MutationObserver: ${imgs.length} images (was ${lastImageCount})`);
+          lastImageCount = imgs.length;
+          stableCount = 0;
+          // Scroll to trigger more lazy-loaded images
+          forceScroll();
         }
       });
       const disconnectObserver = () => observer.disconnect();
       observer.observe(document.body || document.documentElement, { childList: true, subtree: true });
+
+      // Initial scroll after a short delay to let the page render
+      setTimeout(forceScroll, 1000);
+      setTimeout(forceScroll, 3000);
+      setTimeout(forceScroll, 6000);
 
       const checkInterval = setInterval(() => {
         if (hasStarted) {
@@ -285,7 +314,7 @@ function init() {
         if (stableCount >= settings.stabilityChecks) {
           tryStart(`Stabilized at ${lastImageCount} images`);
         }
-      }, 500);
+      }, 1000);
 
       const safetyTimeout = setTimeout(() => {
         if (hasStarted) return;
