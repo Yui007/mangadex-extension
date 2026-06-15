@@ -11,7 +11,8 @@
     "offscreen"
   ],
   "host_permissions": [
-    "https://mangadex.org/"
+    "https://mangadex.org/*",
+    "https://uploads.mangadex.org/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -28,10 +29,5 @@
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
-  },
-  "browser_specific_settings": {
-    "gecko": {
-      "id": "mangadex-downloader@yui007.github.io"
-    }
   }
 }
