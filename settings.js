@@ -6,7 +6,8 @@ const DEFAULTS = {
   retryCount: 3,
   retryDelay: 1000, // ms
   stabilityChecks: 8, // Number of 250ms intervals
-  overallTimeoutSeconds: 30 // seconds
+  overallTimeoutSeconds: 30, // seconds
+  includeChapterNumber: false
 };
 
 // Get settings from storage, providing defaults if not set

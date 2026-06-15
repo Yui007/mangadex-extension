@@ -13,7 +13,8 @@ const DEFAULTS = {
   retryCount: 3,
   retryDelay: 1000, // ms
   stabilityChecks: 8, // Number of 250ms intervals
-  overallTimeoutSeconds: 30 // seconds
+  overallTimeoutSeconds: 30, // seconds
+  includeChapterNumber: false
 };
 
 async function getSettings() {
@@ -25,6 +26,47 @@ async function getSettings() {
 async function loadSettings() {
   settings = await getSettings();
   console.log('Settings loaded:', settings);
+}
+
+function sanitizeFilenamePart(text) {
+  return (text || '').toString().trim().replace(/[<>:"/\\|?*]+/g, '') || 'Chapter';
+}
+
+function extractChapterNumber(title) {
+  const normalized = (title || '').toString().trim();
+  const patterns = [
+    /^(?:chapter|ch\.?|c)\.?\s*(\d+(?:\.\d+)?)/i,
+    /(?:^|[\s(])(?:chapter|ch\.?|c)\.?\s*(\d+(?:\.\d+)?)(?=$|[\s):.-])/i
+  ];
+
+  for (const pattern of patterns) {
+    const match = normalized.match(pattern);
+    if (match) {
+      return match[1].replace(/^0+(?=\d)/, '');
+    }
+  }
+
+  return null;
+}
+
+function normalizeChapterNumber(chapterNumber) {
+  const match = (chapterNumber || '').toString().match(/\d+(?:\.\d+)?/);
+  return match ? match[0].replace(/^0+(?=\d)/, '') : null;
+}
+
+function buildChapterFolderName(chapterTitle, chapterNumber, includeChapterNumber) {
+  const cleanTitle = sanitizeFilenamePart(chapterTitle);
+  if (!includeChapterNumber) {
+    return cleanTitle;
+  }
+
+  const number = extractChapterNumber(chapterNumber || chapterTitle) || normalizeChapterNumber(chapterNumber);
+  if (!number) {
+    return cleanTitle;
+  }
+
+  const titleWithoutNumber = cleanTitle.replace(/^(?:Chapter|Ch\.?|C)\.?\s*\d+(?:\.\d+)?[:\-\s]*/i, '');
+  return `Ch.${number}${titleWithoutNumber ? ` - ${titleWithoutNumber}` : ''}`;
 }
 
 // --- Main Logic ---
@@ -85,23 +127,34 @@ async function processChapter(chapter) {
             : await new Promise(resolve => chrome.tabs.create({ url: chapter.url, active: false }, resolve));
 
         const processAndCleanup = (tabId) => {
-            const messageListener = (request, sender) => {
-                if (sender.tab && sender.tab.id === tabId && request.action === 'chapterProcessingComplete') {
-                    console.log(`Chapter processing complete for tab ${tabId}.`);
-                    if (settings.downloadAs === 'zip') {
-                        createArchive(request.imageUrls, chapter.mangaTitle, chapter, 'zip');
-                    } else if (settings.downloadAs === 'pdf') {
-                        createPdfOffscreen(request.imageUrls, chapter.mangaTitle, chapter);
-                    }
+            const messageListener = (request, sender, sendResponse) => {
+                if (sender.tab && sender.tab.id === tabId) {
+                    if (request.action === 'getChapterDetails') {
+                        sendResponse({
+                            mangaTitle: chapter.mangaTitle,
+                            chapterTitle: chapter.name,
+                            chapterNumber: chapter.chapterNumber,
+                            settings: settings
+                        });
+                        return true;
+                    } else if (request.action === 'chapterProcessingComplete') {
+                        console.log(`Chapter processing complete for tab ${tabId}.`);
+                        const chapterWithDetectedNumber = { ...chapter, chapterNumber: request.chapterNumber || chapter.chapterNumber };
+                        if (settings.downloadAs === 'zip') {
+                            createArchive(request.imageUrls, chapter.mangaTitle, chapterWithDetectedNumber, 'zip');
+                        } else if (settings.downloadAs === 'pdf') {
+                            createPdfOffscreen(request.imageUrls, chapter.mangaTitle, chapterWithDetectedNumber);
+                        }
 
-                    // Only close the tab if we created a new one
-                    if (!shouldUseActiveTab) {
-                        chrome.tabs.remove(tabId);
-                    }
-                    chrome.runtime.onMessage.removeListener(messageListener);
+                        // Only close the tab if we created a new one
+                        if (!shouldUseActiveTab) {
+                            chrome.tabs.remove(tabId);
+                        }
+                        chrome.runtime.onMessage.removeListener(messageListener);
 
-                    activeChapterWorkers--;
-                    processChapterQueue();
+                        activeChapterWorkers--;
+                        processChapterQueue();
+                    }
                 }
             };
             chrome.runtime.onMessage.addListener(messageListener);
@@ -136,7 +189,8 @@ async function processChapter(chapter) {
 
 async function createArchive(imageUrls, mangaTitle, chapter, type) {
     const zip = new JSZip();
-    const chapterFolder = zip.folder(chapter.name);
+    const chapterFolderName = buildChapterFolderName(chapter.name, chapter.chapterNumber, settings.includeChapterNumber);
+    const chapterFolder = zip.folder(chapterFolderName);
 
     const imagePromises = imageUrls.map(async (url, index) => {
         const response = await fetch(url);
@@ -148,7 +202,7 @@ async function createArchive(imageUrls, mangaTitle, chapter, type) {
     await Promise.all(imagePromises);
 
     const zipBlob = await zip.generateAsync({ type: 'blob' });
-    const filename = `${mangaTitle} - ${chapter.name}.${type}`;
+    const filename = `${mangaTitle} - ${chapterFolderName}.${type}`;
 
     const reader = new FileReader();
     reader.onload = function() {
@@ -164,6 +218,7 @@ async function createArchive(imageUrls, mangaTitle, chapter, type) {
 let creating;
 
 async function createPdfOffscreen(imageUrls, mangaTitle, chapter) {
+    const chapterFolderName = buildChapterFolderName(chapter.name, chapter.chapterNumber, settings.includeChapterNumber);
     // Check if an offscreen document is already available.
     if (await chrome.offscreen.hasDocument()) {
         console.log("Offscreen document already exists. Sending message.");
@@ -172,6 +227,7 @@ async function createPdfOffscreen(imageUrls, mangaTitle, chapter) {
             imageUrls,
             mangaTitle,
             chapter,
+            chapterFolderName,
         });
         return;
     }
@@ -196,6 +252,7 @@ async function createPdfOffscreen(imageUrls, mangaTitle, chapter) {
         imageUrls,
         mangaTitle,
         chapter,
+        chapterFolderName,
     });
 }
 

@@ -1,0 +1,18 @@
+# Local/editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Generated/download artifacts
+*.rar
+*.zip
+*.7z
+*.tar.gz
+*.tgz
+
+# Original source assets not used by the published extension
+icons/original.png
+
+# Hermes agent context (kept local for this repository)
+AGENTS.md

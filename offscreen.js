@@ -1,6 +1,6 @@
 chrome.runtime.onMessage.addListener(async (request) => {
   if (request.action === 'createPdfOffscreen') {
-    const { imageUrls, mangaTitle, chapter } = request;
+    const { imageUrls, mangaTitle, chapter, chapterFolderName } = request;
     const { jsPDF } = window.jspdf;
     const pdf = new jsPDF();
 
@@ -29,7 +29,7 @@ chrome.runtime.onMessage.addListener(async (request) => {
     }
 
     const pdfBlob = pdf.output('blob');
-    const pdfFilename = `${mangaTitle} - ${chapter.name}.pdf`;
+    const pdfFilename = `${mangaTitle} - ${chapterFolderName || chapter.name}.pdf`;
 
     const reader = new FileReader();
     reader.onload = function () {

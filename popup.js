@@ -15,6 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const retryDelayInput = document.getElementById('retryDelay');
   const stabilityChecksInput = document.getElementById('stabilityChecks');
   const overallTimeoutSecondsInput = document.getElementById('overallTimeoutSeconds');
+  const includeChapterNumberInput = document.getElementById('includeChapterNumber');
   const saveSettingsBtn = document.getElementById('saveSettingsBtn');
   const settingsStatusDiv = document.getElementById('settingsStatus');
 
@@ -57,15 +58,37 @@ document.addEventListener('DOMContentLoaded', () => {
         target: { tabId: currentTab.id },
         func: () => {
             const mangaTitleElement = document.querySelector('a.reader--header-manga');
-            const chapterTitleElement = document.querySelector('div.reader--header-title');
-            const mangaTitle = mangaTitleElement ? mangaTitleElement.textContent.trim().replace(/[<>:"/\\|?*]+/g, '') : 'Manga';
-            const chapterTitle = chapterTitleElement ? chapterTitleElement.textContent.trim().replace(/[<>:"/\\|?*]+/g, '') : 'Chapter';
-            return { mangaTitle, chapterTitle };
+            const chapterTitleElement = document.querySelector('#chaptertitle_undefined span.chapter-link')
+              || document.querySelector('div.reader--header-title');
+            const chapterNumberElement = document.querySelector('.chapter-header.two-line span.font-bold');
+            const sanitizeFilenamePart = (text) => (text || '').toString().trim().replace(/[<>:"/\\|?*]+/g, '') || 'Chapter';
+            const extractChapterNumber = (title) => {
+                const normalized = (title || '').toString().trim();
+                const patterns = [
+                    /^(?:chapter|ch\.?|c)\.?\s*(\d+(?:\.\d+)?)/i,
+                    /(?:^|[\s(])(?:chapter|ch\.?|c)\.?\s*(\d+(?:\.\d+)?)(?=$|[\s):.-])/i
+                ];
+
+                for (const pattern of patterns) {
+                    const match = normalized.match(pattern);
+                    if (match) {
+                        return match[1].replace(/^0+(?=\d)/, '');
+                    }
+                }
+
+                return null;
+            };
+            const mangaTitle = sanitizeFilenamePart(mangaTitleElement ? mangaTitleElement.textContent.trim() : 'Manga');
+            const chapterTitle = sanitizeFilenamePart(chapterTitleElement ? chapterTitleElement.textContent.trim() : 'Chapter');
+            const chapterNumber = extractChapterNumber(chapterTitleElement ? chapterTitleElement.textContent.trim() : '')
+                || (chapterNumberElement ? extractChapterNumber(chapterNumberElement.textContent.trim()) : null)
+                || extractChapterNumber(document.title);
+            return { mangaTitle, chapterTitle, chapterNumber };
         }
     }, (injectionResults) => {
         for (const frameResult of injectionResults) {
-            const { mangaTitle, chapterTitle } = frameResult.result;
-            const chapter = { url: currentTab.url, name: chapterTitle, mangaTitle: mangaTitle };
+            const { mangaTitle, chapterTitle, chapterNumber } = frameResult.result;
+            const chapter = { url: currentTab.url, name: chapterTitle, mangaTitle: mangaTitle, chapterNumber: chapterNumber };
             chrome.runtime.sendMessage({ action: 'downloadAllChapters', chapters: [chapter] });
         }
     });
@@ -107,6 +130,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return {
             url: cb.dataset.url,
             name: cb.dataset.title,
+            chapterNumber: cb.dataset.chapterNumber || null,
         }
     });
 
@@ -128,7 +152,8 @@ document.addEventListener('DOMContentLoaded', () => {
       retryCount: parseInt(retryCountInput.value, 10),
       retryDelay: parseInt(retryDelayInput.value, 10),
       stabilityChecks: parseInt(stabilityChecksInput.value, 10),
-      overallTimeoutSeconds: parseInt(overallTimeoutSecondsInput.value, 10)
+      overallTimeoutSeconds: parseInt(overallTimeoutSecondsInput.value, 10),
+      includeChapterNumber: includeChapterNumberInput.checked
     };
     await saveSettings(newSettings);
     settingsStatusDiv.textContent = 'Settings saved!';
@@ -144,6 +169,7 @@ document.addEventListener('DOMContentLoaded', () => {
     retryDelayInput.value = settings.retryDelay;
     stabilityChecksInput.value = settings.stabilityChecks;
     overallTimeoutSecondsInput.value = settings.overallTimeoutSeconds;
+    includeChapterNumberInput.checked = settings.includeChapterNumber;
   }
   
   const messageListener = (request, sender) => {
@@ -201,6 +227,7 @@ document.addEventListener('DOMContentLoaded', () => {
       checkbox.id = `chapter-${chapter.url}`;
       checkbox.dataset.url = chapter.url;
       checkbox.dataset.title = chapter.title;
+      checkbox.dataset.chapterNumber = chapter.chapterNumber || '';
       const label = document.createElement('label');
       label.setAttribute('for', `chapter-${chapter.url}`);
       label.textContent = chapter.title;

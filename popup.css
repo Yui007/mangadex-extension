@@ -195,6 +195,11 @@ select:focus {
   text-align: center;
 }
 
+.checkbox-setting input {
+  width: auto;
+  accent-color: #8b5cf6;
+}
+
 #settingsStatus {
   font-size: 12px;
   min-height: 20px;

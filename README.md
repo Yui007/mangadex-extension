@@ -12,7 +12,7 @@ A powerful and customizable browser extension to download manga chapters from Ma
 -   **Language Filtering:** Easily find and download chapters in your preferred language.
 -   **Advanced Concurrency Control:** Fine-tune the number of simultaneous chapter and image downloads to match your network speed and system capabilities.
 -   **Robust Download Engine:** Features an automatic retry mechanism for failed images and intelligent page-load detection to prevent incomplete downloads.
--   **Organized File Structure:** Chapters are saved into a clean, easy-to-navigate folder structure: `Manga Title/Chapter Name/`.
+-   **Organized File Structure:** Chapters are saved into a clean, easy-to-navigate folder structure: `Manga Title/Chapter Name/`. You can optionally prefix chapter folders with `Ch.1 - `.
 -   **Modern & Intuitive UI:** A sleek, dark-themed popup interface that is easy to use.
 
 ## Installation
@@ -21,6 +21,7 @@ A powerful and customizable browser extension to download manga chapters from Ma
 2.  **Open Browser Extensions:**
     -   **Chrome/Brave:** Navigate to `chrome://extensions`
     -   **Edge:** Navigate to `edge://extensions`
+    -   **Firefox:** Navigate to `about:debugging#/runtime/this-firefox` and choose **Load Temporary Add-on**, then select `manifest.json`.
 3.  **Enable Developer Mode:** Find and enable the "Developer mode" toggle, usually located in the top-right corner.
 4.  **Load the Extension:** Click the **"Load unpacked"** button and select the directory where you extracted/cloned the code.
 
@@ -62,6 +63,7 @@ Click the **"Settings"** tab in the extension popup to configure the following o
 -   **Retry Delay (ms):** The wait time in milliseconds before a retry attempt (default: 1000).
 -   **Stability Checks:** The number of 250ms intervals the page must be stable before starting a download. Increase this if chapters are not fully loading.
 -   **Overall Timeout (s):** The maximum time to wait for a chapter's images to load.
+-   **Add Chapter Number to Folder Names:** Prefix downloaded chapter folders with `Ch.1 - Title` when the chapter number can be detected.
 
 Remember to click **"Save Settings"** after making any changes.
 
@@ -70,6 +72,7 @@ Remember to click **"Save Settings"** after making any changes.
 -   **Incomplete downloads or "No images found":** Try increasing the "Stability Checks" and "Overall Timeout (s)" values in the settings. This is often necessary for very long chapters or on slower connections.
 -   **Browser blocking downloads:** The extension may trigger your browser's protection against downloading multiple files at once. If prompted, always choose to "Allow" the downloads.
 -   **Extension not working:** Ensure you are on a valid `mangadex.org` chapter or title page and reload the page.
+-   **Firefox:** Use `about:debugging#/runtime/this-firefox` and load `manifest.json` as a temporary add-on. PDF mode depends on Chrome's offscreen document API, so use Images or ZIP mode for the most compatible Firefox experience.
 
 ## Contributing
 
