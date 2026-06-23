@@ -1,464 +1,582 @@
 importScripts('lib/jszip.min.js');
 
-// --- Global State ---
-let settings = {};
-let chapterQueue = [];
-let activeChapterWorkers = 0;
+// ============================================================
+//  MangaDex API Constants
+// ============================================================
+const API_BASE = 'https://api.mangadex.org';
+const API_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'Accept': 'application/json, text/plain, */*',
+  'Origin': 'https://mangadex.org',
+  'Referer': 'https://mangadex.org/',
+};
 
-// --- Utility Functions ---
+// ============================================================
+//  Settings
+// ============================================================
 const DEFAULTS = {
   downloadAs: 'images',
   concurrentChapters: 3,
   concurrentImages: 5,
   retryCount: 3,
-  retryDelay: 1000, // ms
-  stabilityChecks: 8, // Number of 250ms intervals
-  overallTimeoutSeconds: 30, // seconds
-  includeChapterNumber: false
+  retryDelay: 1000,
+  dataSaver: false,
+  includeChapterNumber: false,
 };
+
+let settings = { ...DEFAULTS };
+let chapterQueue = [];
+let activeChapterWorkers = 0;
 
 async function getSettings() {
   return new Promise(resolve => {
-    chrome.storage.sync.get(DEFAULTS, settings => resolve(settings));
+    chrome.storage.sync.get(DEFAULTS, s => resolve(s));
   });
 }
 
 async function loadSettings() {
   settings = await getSettings();
-  console.log('Settings loaded:', settings);
 }
 
-function sanitizeFilenamePart(text) {
+loadSettings();
+chrome.storage.onChanged.addListener(loadSettings);
+
+// ============================================================
+//  Declarative Net Request (DNR) Rules
+// ============================================================
+const RULES = [
+  {
+    id: 1,
+    priority: 1,
+    action: {
+      type: 'modifyHeaders',
+      requestHeaders: [
+        {
+          header: 'Referer',
+          operation: 'set',
+          value: 'https://mangadex.org/'
+        }
+      ]
+    },
+    condition: {
+      urlFilter: '*://*.mangadex.network/*',
+      resourceTypes: ['xmlhttprequest', 'main_frame', 'sub_frame', 'other', 'image']
+    }
+  },
+  {
+    id: 2,
+    priority: 1,
+    action: {
+      type: 'modifyHeaders',
+      requestHeaders: [
+        {
+          header: 'Referer',
+          operation: 'set',
+          value: 'https://mangadex.org/'
+        }
+      ]
+    },
+    condition: {
+      urlFilter: '*://uploads.mangadex.org/*',
+      resourceTypes: ['xmlhttprequest', 'main_frame', 'sub_frame', 'other', 'image']
+    }
+  }
+];
+
+async function setupNetRequestRules() {
+  try {
+    await chrome.declarativeNetRequest.updateSessionRules({
+      removeRuleIds: [1, 2],
+      addRules: RULES
+    });
+    console.log('[bg] DNR rules registered successfully.');
+  } catch (err) {
+    console.error('[bg] Failed to register DNR rules:', err);
+  }
+}
+
+setupNetRequestRules();
+
+// ============================================================
+//  Utility Functions
+// ============================================================
+function sanitize(text) {
   return (text || '').toString().trim().replace(/[<>:"/\\|?*]+/g, '') || 'Chapter';
 }
 
 function extractChapterNumber(title) {
-  const normalized = (title || '').toString().trim();
+  const n = (title || '').toString().trim();
   const patterns = [
     /^(?:chapter|ch\.?|c)\.?\s*(\d+(?:\.\d+)?)/i,
-    /(?:^|[\s(])(?:chapter|ch\.?|c)\.?\s*(\d+(?:\.\d+)?)(?=$|[\s):.-])/i
+    /(?:^|[\s(])(?:chapter|ch\.?|c)\.?\s*(\d+(?:\.\d+)?)(?=$|[\s):.-])/i,
   ];
-
-  for (const pattern of patterns) {
-    const match = normalized.match(pattern);
-    if (match) {
-      return match[1].replace(/^0+(?=\d)/, '');
-    }
+  for (const p of patterns) {
+    const m = n.match(p);
+    if (m) return m[1].replace(/^0+(?=\d)/, '');
   }
-
   return null;
 }
 
-function normalizeChapterNumber(chapterNumber) {
-  const match = (chapterNumber || '').toString().match(/\d+(?:\.\d+)?/);
-  return match ? match[0].replace(/^0+(?=\d)/, '') : null;
+function normalizeChapterNumber(n) {
+  const m = (n || '').toString().match(/\d+(?:\.\d+)?/);
+  return m ? m[0].replace(/^0+(?=\d)/, '') : null;
 }
 
 function buildChapterFolderName(chapterTitle, chapterNumber, includeChapterNumber) {
-  const cleanTitle = sanitizeFilenamePart(chapterTitle);
-  if (!includeChapterNumber) {
-    return cleanTitle;
-  }
-
-  const number = extractChapterNumber(chapterNumber || chapterTitle) || normalizeChapterNumber(chapterNumber);
-  if (!number) {
-    return cleanTitle;
-  }
-
-  const titleWithoutNumber = cleanTitle.replace(/^(?:Chapter|Ch\.?|C)\.?\s*\d+(?:\.\d+)?[:\-\s]*/i, '');
-  return `Ch.${number}${titleWithoutNumber ? ` - ${titleWithoutNumber}` : ''}`;
+  const clean = sanitize(chapterTitle);
+  if (!includeChapterNumber) return clean;
+  const num = extractChapterNumber(chapterNumber || chapterTitle) || normalizeChapterNumber(chapterNumber);
+  if (!num) return clean;
+  const withoutNum = clean.replace(/^(?:Chapter|Ch\.?|C)\.?\s*\d+(?:\.\d+)?[:\-\s]*/i, '');
+  return `Ch.${num}${withoutNum ? ` - ${withoutNum}` : ''}`;
 }
 
-// --- Main Logic ---
-// Load settings on startup
-loadSettings();
+function sanitizeFilenamePart(text) {
+  return sanitize(text);
+}
 
-// Listen for settings changes
-chrome.storage.onChanged.addListener(loadSettings);
+// ============================================================
+//  MangaDex API Methods
+// ============================================================
 
-// Listen for messages from the popup or content scripts
+/** Extract manga UUID from a MangaDex title URL */
+function parseMangaUuid(url) {
+  const m = url.match(/mangadex\.org\/title\/([a-f0-9-]+)/i);
+  return m ? m[1] : null;
+}
+
+/** Extract chapter UUID from a MangaDex chapter URL */
+function parseChapterUuid(url) {
+  const m = url.match(/mangadex\.org\/chapter\/([a-f0-9-]+)/i);
+  return m ? m[1] : null;
+}
+
+/** Fetch manga details (title, cover, author, artist) */
+async function apiGetManga(mangaUuid) {
+  const url = `${API_BASE}/manga/${mangaUuid}?includes[]=artist&includes[]=author&includes[]=cover_art`;
+  const res = await fetch(url, { headers: API_HEADERS });
+  if (!res.ok) throw new Error(`API manga ${res.status}`);
+  const json = await res.json();
+  // Extract title (prefer en, fallback to first available)
+  const titles = json.data?.attributes?.title || {};
+  const title = titles.en || Object.values(titles)[0] || 'Manga';
+  return { title };
+}
+
+/** Fetch chapter list via aggregate (grouped by volume) */
+async function apiGetChapters(mangaUuid, langCode) {
+  // Lang code map: gb → en, br → pt-br, etc.
+  const langMap = {
+    gb: 'en', br: 'pt-br', ru: 'ru', 'es-la': 'es-la',
+    fr: 'fr', id: 'id', vn: 'vi',
+  };
+  const lang = langMap[langCode] || 'en';
+
+  // Step 1: aggregate gives chapter IDs grouped by volume
+  const aggUrl = `${API_BASE}/manga/${mangaUuid}/aggregate?translatedLanguage[]=${lang}`;
+  const aggRes = await fetch(aggUrl, { headers: API_HEADERS });
+  if (!aggRes.ok) throw new Error(`API aggregate ${aggRes.status}`);
+  const agg = await aggRes.json();
+
+  const chapters = [];
+  for (const vol of Object.values(agg.volumes || {})) {
+    for (const [chNum, ch] of Object.entries(vol.chapters || {})) {
+      chapters.push({
+        id: ch.id,
+        chapter: chNum,
+        title: ch.chapter || `Chapter ${chNum}`,
+        volume: vol.volume,
+      });
+    }
+  }
+  // Sort ascending by chapter number
+  chapters.sort((a, b) => parseFloat(a.chapter) - parseFloat(b.chapter));
+  return chapters;
+}
+
+/** Fetch chapter images from MD@Home server */
+async function apiGetChapterImages(chapterId) {
+  const url = `${API_BASE}/at-home/server/${chapterId}?forcePort443=false`;
+  const res = await fetch(url, { headers: API_HEADERS });
+  if (!res.ok) throw new Error(`API at-home ${res.status}`);
+  const json = await res.json();
+  const { baseUrl, chapter } = json;
+  const imageList = settings.dataSaver ? chapter.dataSaver : chapter.data;
+  const hash = chapter.hash;
+  const qualityPath = settings.dataSaver ? 'data-saver' : 'data';
+  return imageList.map(f => `${baseUrl}/${qualityPath}/${hash}/${f}`);
+}
+
+// ============================================================
+//  Message Handlers
+// ============================================================
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   (async () => {
-    console.log(`[msg] Received action: "${request.action}" from`, sender.tab ? `tab ${sender.tab.id}` : 'extension');
-    if (request.action === 'downloadAllChapters') {
-      await loadSettings(); // Ensure settings are fresh
-      // Add new chapters to the front of the queue
-      chapterQueue.unshift(...request.chapters);
-      console.log(`[queue] Added ${request.chapters.length} chapters to the queue. Total: ${chapterQueue.length}, downloadAs: ${settings.downloadAs}`);
-      processChapterQueue();
-    } else if (request.action === 'queueImageDownload') {
-      console.log(`[download] queueImageDownload: ${request.filename}`);
-      if (settings.downloadAs === 'images') {
-        // This action will be called from the content script for each image
-        downloadImageWithRetry(request.url, request.filename, settings.retryCount);
-      } else {
-        console.warn(`[download] Ignoring queueImageDownload because downloadAs is "${settings.downloadAs}", not "images"`);
-      }
-    } else if (request.action === 'downloadPdf') {
-      console.log(`[pdf] downloadPdf: ${request.filename}`);
-      if (!request.url || !request.filename) {
-        throw new Error('PDF download request is missing a URL or filename.');
-      }
+    try {
+      switch (request.action) {
 
-      chrome.downloads.download({
-        url: request.url,
-        filename: request.filename,
-        conflictAction: 'overwrite'
-      }, (downloadId) => {
-        if (chrome.runtime.lastError) {
-          console.error('[pdf] Failed to start PDF download:', chrome.runtime.lastError.message);
+        // --- Popup requests chapter list for a manga URL ---
+        case 'fetchChapterList': {
+          const mangaUuid = parseMangaUuid(request.url);
+          if (!mangaUuid) throw new Error('Could not extract manga UUID from URL');
+          const chapters = await apiGetChapters(mangaUuid, request.language || 'gb');
+          sendResponse({ ok: true, chapters, mangaTitle: request.mangaTitle });
           return;
         }
-        console.log(`[pdf] Started PDF download: ${request.filename} (${downloadId})`);
-      });
 
-      // Close the offscreen document after the download is initiated.
-      if (chrome.offscreen?.hasDocument && await chrome.offscreen.hasDocument()) {
-        await chrome.offscreen.closeDocument();
+        // --- Popup triggers batch download of selected chapters ---
+        case 'downloadChapters': {
+          await loadSettings();
+          // chapters: [{ id, chapter, title, mangaTitle }]
+          chapterQueue.unshift(...request.chapters.map(ch => ({
+            ...ch,
+            url: `https://mangadex.org/chapter/${ch.id}`,
+            name: ch.title,
+            mangaTitle: ch.mangaTitle || request.mangaTitle,
+          })));
+          processChapterQueue();
+          sendResponse({ ok: true, queued: request.chapters.length });
+          return;
+        }
+
+        // --- Download single chapter from current tab (fallback) ---
+        case 'downloadSingleChapter': {
+          await loadSettings();
+          const chapterId = parseChapterUuid(request.url);
+          if (!chapterId) throw new Error('Could not extract chapter UUID from URL');
+          const chapter = {
+            id: chapterId,
+            url: request.url,
+            name: request.chapterTitle || `Chapter ${chapterId}`,
+            mangaTitle: request.mangaTitle || 'Manga',
+            chapterNumber: request.chapterNumber || null,
+          };
+          chapterQueue.unshift(chapter);
+          processChapterQueue();
+          sendResponse({ ok: true });
+          return;
+        }
+
+        // --- Handle PDF downloads from offscreen document ---
+        case 'downloadPdf': {
+          chrome.downloads.download({
+            url: request.url,
+            filename: request.filename,
+            conflictAction: 'overwrite'
+          }, (downloadId) => {
+            if (chrome.runtime.lastError) {
+              console.error('[bg] PDF download error:', chrome.runtime.lastError.message);
+              sendResponse({ ok: false, error: chrome.runtime.lastError.message });
+            } else {
+              sendResponse({ ok: true, downloadId });
+            }
+          });
+          return;
+        }
       }
-    } else if (request.action === 'createPdfOffscreen') {
-      console.log(`[pdf] createPdfOffscreen received with ${request.imageUrls?.length || 0} images`);
-      // This is received by the offscreen document, but in case it arrives here, forward it
+    } catch (err) {
+      console.error('[bg] Handler error:', err);
+      sendResponse({ ok: false, error: err.message });
     }
-  })().catch(error => {
-    console.error('Message handling failed:', error);
-  });
-  return true; // Indicate async response
+  })();
+  return true; // keep channel open for async response
 });
 
+// ============================================================
+//  Queue Processing
+// ============================================================
 function processChapterQueue() {
-  console.log(`[queue] Processing. Workers: ${activeChapterWorkers}/${settings.concurrentChapters}. Queue size: ${chapterQueue.length}, downloadAs: ${settings.downloadAs}`);
   while (activeChapterWorkers < settings.concurrentChapters && chapterQueue.length > 0) {
     activeChapterWorkers++;
-    const chapter = chapterQueue.pop();
-    console.log(`[queue] Starting worker for: ${chapter.url} (worker ${activeChapterWorkers}/${settings.concurrentChapters})`);
+    const chapter = chapterQueue.shift();
     processChapter(chapter);
   }
-
   if (chapterQueue.length === 0 && activeChapterWorkers === 0) {
-    console.log('[queue] All chapters processed.');
+    broadcastProgress({ type: 'allDone', message: 'All chapters downloaded.' });
   }
 }
 
+/** Send progress update to popup */
+function broadcastProgress(data) {
+  chrome.runtime.sendMessage({ action: 'downloadProgress', ...data }).catch(() => {
+    // popup may not be open, ignore
+  });
+}
+
+// ============================================================
+//  Chapter Processing
+// ============================================================
 async function processChapter(chapter) {
-    console.log(`[worker] Starting chapter: ${chapter.url}, downloadAs: ${settings.downloadAs}`);
-    try {
-        const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        console.log(`[worker] Active tab: ${activeTab?.id}, url: ${activeTab?.url?.substring(0, 80)}`);
+  try {
+    broadcastProgress({
+      type: 'chapterStart',
+      chapterTitle: chapter.name || chapter.chapter,
+      mangaTitle: chapter.mangaTitle,
+      index: activeChapterWorkers,
+    });
 
-        // If the active tab is the one we want to process, use it directly.
-        // Otherwise, open a new background tab.
-        const shouldUseActiveTab = activeTab && activeTab.url.includes(chapter.url);
-        console.log(`[worker] shouldUseActiveTab: ${shouldUseActiveTab}`);
-
-        const tabToUse = shouldUseActiveTab
-            ? activeTab
-            : await new Promise(resolve => {
-                console.log(`[worker] Creating new background tab for: ${chapter.url}`);
-                chrome.tabs.create({ url: chapter.url, active: false }, (tab) => {
-                  console.log(`[worker] New tab created: ${tab.id}`);
-                  resolve(tab);
-                });
-              });
-
-        const processAndCleanup = (tabId) => {
-            console.log(`[worker] Setting up message listener for tab ${tabId}`);
-            const messageListener = (request, sender, sendResponse) => {
-                if (sender.tab && sender.tab.id === tabId) {
-                    console.log(`[worker] Received "${request.action}" from tab ${tabId}`);
-                    if (request.action === 'getChapterDetails') {
-                        console.log(`[worker] Responding to getChapterDetails for tab ${tabId}`);
-                        sendResponse({
-                            mangaTitle: chapter.mangaTitle,
-                            chapterTitle: chapter.name,
-                            chapterNumber: chapter.chapterNumber,
-                            settings: settings
-                        });
-                        return true;
-                    } else if (request.action === 'chapterProcessingComplete') {
-                        try {
-                            console.log(`[worker] Chapter processing complete for tab ${tabId}. Images: ${request.imageUrls?.length || 0}`);
-                            const imageUrls = Array.isArray(request.imageUrls) ? request.imageUrls.filter(source => typeof source === 'string' && source.trim()) : [];
-                            const chapterWithDetectedNumber = { ...chapter, chapterNumber: request.chapterNumber || chapter.chapterNumber };
-
-                            if (imageUrls.length === 0) {
-                                console.warn(`[worker] No usable images found for ${chapter.url}; skipping ${settings.downloadAs} export.`);
-                            } else if (settings.downloadAs === 'zip') {
-                                console.log(`[worker] Starting ZIP creation with ${imageUrls.length} images`);
-                                createArchive(imageUrls, chapter.mangaTitle, chapterWithDetectedNumber, 'zip');
-                            } else if (settings.downloadAs === 'pdf') {
-                                console.log(`[worker] Starting PDF creation with ${imageUrls.length} images`);
-                                createPdfOffscreen(imageUrls, chapter.mangaTitle, chapterWithDetectedNumber);
-                            } else {
-                                console.log(`[worker] downloadAs is "${settings.downloadAs}", no post-processing needed (images already queued)`);
-                            }
-                        } catch (error) {
-                            console.error(`[worker] Failed to finish chapter ${chapter.url}:`, error);
-                        } finally {
-                            // Only close the tab if we created a new one
-                            if (!shouldUseActiveTab) {
-                                console.log(`[worker] Closing tab ${tabId}`);
-                                chrome.tabs.remove(tabId);
-                            }
-                            chrome.runtime.onMessage.removeListener(messageListener);
-
-                            activeChapterWorkers--;
-                            console.log(`[worker] Worker done. Active workers: ${activeChapterWorkers}`);
-                            processChapterQueue();
-                        }
-                    }
-                }
-            };
-            chrome.runtime.onMessage.addListener(messageListener);
-
-            console.log(`[worker] Injecting content.js into tab ${tabId}`);
-            chrome.scripting.executeScript({
-                target: { tabId: tabId },
-                files: ['content.js'],
-            }, (results) => {
-              if (chrome.runtime.lastError) {
-                console.error(`[worker] Failed to inject content.js:`, chrome.runtime.lastError.message);
-                activeChapterWorkers--;
-                processChapterQueue();
-              } else {
-                console.log(`[worker] content.js injected successfully into tab ${tabId}`);
-              }
-            });
-        };
-
-        if (shouldUseActiveTab) {
-            console.log(`[worker] Using active tab ${tabToUse.id} for processing.`);
-            processAndCleanup(tabToUse.id);
-        } else {
-            // Listen for the new tab to finish loading before injecting script
-            const tabUpdateListener = (tabId, info) => {
-                if (tabId === tabToUse.id && info.status === 'complete') {
-                    console.log(`[worker] Tab ${tabId} loaded. Injecting content script.`);
-                    processAndCleanup(tabId);
-                    chrome.tabs.onUpdated.removeListener(tabUpdateListener);
-                }
-            };
-            chrome.tabs.onUpdated.addListener(tabUpdateListener);
-            // Safety: if tab is already complete (cached), process immediately
-            if (tabToUse.status === 'complete') {
-                console.log(`[worker] Tab ${tabToUse.id} already complete, injecting immediately.`);
-                processAndCleanup(tabToUse.id);
-                chrome.tabs.onUpdated.removeListener(tabUpdateListener);
-            }
-        }
-
-    } catch (error) {
-        console.error(`[worker] Error processing chapter ${chapter.url}:`, error);
-        activeChapterWorkers--;
-        processChapterQueue();
+    // Get image URLs from API
+    const imageUrls = await apiGetChapterImages(chapter.id);
+    if (imageUrls.length === 0) {
+      console.warn(`[chapter] No images for ${chapter.id}`);
+      finishChapter(chapter);
+      return;
     }
+
+    broadcastProgress({
+      type: 'chapterImages',
+      chapterTitle: chapter.name,
+      totalImages: imageUrls.length,
+    });
+
+    // Normalize chapter number for folder naming
+    const chNum = chapter.chapterNumber || extractChapterNumber(chapter.name) || normalizeChapterNumber(chapter.chapter);
+    const chapterWithNum = { ...chapter, chapterNumber: chNum };
+
+    if (settings.downloadAs === 'images') {
+      await downloadChapterImages(imageUrls, chapter, chNum);
+    } else if (settings.downloadAs === 'zip') {
+      await createArchive(imageUrls, chapter.mangaTitle, chapterWithNum, 'zip');
+    } else if (settings.downloadAs === 'pdf') {
+      await createPdfOffscreen(imageUrls, chapter.mangaTitle, chapterWithNum);
+    }
+
+    broadcastProgress({
+      type: 'chapterDone',
+      chapterTitle: chapter.name,
+    });
+  } catch (err) {
+    console.error(`[chapter] Failed ${chapter.id}:`, err);
+  } finally {
+    finishChapter(chapter);
+  }
 }
 
-function dataUrlToBlob(dataUrl) {
-    const [header, base64Data = ''] = dataUrl.split(',');
-    const mimeType = header.match(/^data:(.*?);base64$/i)?.[1] || 'application/octet-stream';
-    const binary = atob(base64Data);
-    const bytes = new Uint8Array(binary.length);
-
-    for (let i = 0; i < binary.length; i++) {
-        bytes[i] = binary.charCodeAt(i);
-    }
-
-    return new Blob([bytes], { type: mimeType });
+function finishChapter(chapter) {
+  activeChapterWorkers--;
+  processChapterQueue();
 }
 
-async function imageSourceToBlob(source) {
-    if (source.startsWith('data:')) {
-        return dataUrlToBlob(source);
+// ============================================================
+//  Image Download (Individual Mode)
+// ============================================================
+async function downloadChapterImages(imageUrls, chapter, chapterNumber) {
+  const folderName = `${sanitize(chapter.mangaTitle)}/${buildChapterFolderName(chapter.name, chapterNumber, settings.includeChapterNumber)}`;
+  const total = imageUrls.length;
+  let completedCount = 0;
+  let idx = 0;
+
+  const concurrency = settings.concurrentImages || 5;
+
+  const worker = async () => {
+    while (idx < total) {
+      const i = idx++;
+      const pageNum = String(i + 1).padStart(3, '0');
+      const ext = imageUrls[i].split('.').pop().split('?')[0];
+      const filename = `${folderName}/${pageNum}.${ext}`;
+
+      try {
+        await downloadImageWithRetry(imageUrls[i], filename, settings.retryCount);
+      } catch (err) {
+        console.error(`[dl] Failed ${filename}:`, err);
+      }
+
+      completedCount++;
+      broadcastProgress({
+        type: 'imageProgress',
+        completed: completedCount,
+        total,
+        percent: Math.round((completedCount / total) * 100),
+      });
     }
+  };
 
-    const response = await fetch(source, { mode: 'cors' });
-    if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-    }
-
-    return response.blob();
-}
-
-function getBlobExtension(blob, source) {
-    const mimeType = blob.type || '';
-    const mimeExtension = mimeType.split('/')[1];
-
-    if (mimeExtension) {
-        return mimeExtension === 'jpeg' ? 'jpg' : mimeExtension;
-    }
-
-    try {
-        const extension = new URL(source).pathname.split('.').pop();
-        if (extension && extension.length <= 5) {
-            return extension.toLowerCase();
-        }
-    } catch (error) {
-        // Ignore non-URL sources.
-    }
-
-    return 'bin';
-}
-
-function downloadBlob(blob, filename) {
-    const reader = new FileReader();
-    reader.onload = function() {
-        chrome.downloads.download({
-            url: reader.result,
-            filename,
-            conflictAction: 'overwrite'
-        }, (downloadId) => {
-            if (chrome.runtime.lastError) {
-                console.error(`Failed to download ${filename}:`, chrome.runtime.lastError.message);
-                return;
-            }
-            console.log(`Started download: ${filename} (${downloadId})`);
-        });
-    };
-    reader.onerror = function() {
-        console.error(`Failed to prepare ${filename} for download:`, reader.error);
-    };
-    reader.readAsDataURL(blob);
-}
-
-async function createArchive(imageUrls, mangaTitle, chapter, type) {
-    console.log(`[zip] Starting archive creation. ${imageUrls.length} images, manga: ${mangaTitle}`);
-    try {
-        const zip = new JSZip();
-        const chapterFolderName = buildChapterFolderName(chapter.name, chapter.chapterNumber, settings.includeChapterNumber);
-        const chapterFolder = zip.folder(chapterFolderName);
-        const sources = Array.isArray(imageUrls) ? imageUrls.filter(source => typeof source === 'string' && source.trim()) : [];
-
-        if (sources.length === 0) {
-            console.warn(`[zip] No image sources provided for ${chapter.url}; skipping ZIP export.`);
-            return;
-        }
-
-        console.log(`[zip] Downloading ${sources.length} images...`);
-        const imagePromises = sources.map(async (source, index) => {
-            const blob = await imageSourceToBlob(source);
-            const extension = getBlobExtension(blob, source);
-            const filename = `${String(index + 1).padStart(3, '0')}.${extension}`;
-            chapterFolder.file(filename, blob);
-            console.log(`[zip]   Added image ${index + 1}/${sources.length}: ${filename}`);
-        });
-
-        const settled = await Promise.allSettled(imagePromises);
-        const failedCount = settled.filter(result => result.status === 'rejected').length;
-        const successCount = settled.filter(result => result.status === 'fulfilled').length;
-
-        if (failedCount > 0) {
-            console.warn(`[zip] ZIP export completed with ${failedCount} failed image(s).`);
-        } else {
-            console.log(`[zip] All ${successCount} images added to ZIP.`);
-        }
-
-        console.log(`[zip] Generating ZIP blob...`);
-        const zipBlob = await zip.generateAsync({ type: 'blob' });
-        const filename = `${sanitizeFilenamePart(mangaTitle)} - ${chapterFolderName}.${type}`;
-        console.log(`[zip] Downloading ZIP: ${filename} (${zipBlob.size} bytes)`);
-
-        downloadBlob(zipBlob, filename);
-    } catch (error) {
-        console.error(`[zip] Failed to create archive:`, error);
-    }
-}
-
-// A global promise to manage the offscreen document lifecycle
-let creating;
-
-async function createPdfOffscreen(imageUrls, mangaTitle, chapter) {
-    const sources = Array.isArray(imageUrls) ? imageUrls.filter(source => typeof source === 'string' && source.trim()) : [];
-    console.log(`[pdf] Starting PDF creation. ${sources.length} images`);
-    if (sources.length === 0) {
-        console.warn(`[pdf] No image sources provided for ${chapter.url}; skipping PDF export.`);
-        return;
-    }
-
-    const chapterFolderName = buildChapterFolderName(chapter.name, chapter.chapterNumber, settings.includeChapterNumber);
-
-    if (!chrome.offscreen?.createDocument || !chrome.offscreen?.hasDocument) {
-        console.error('[pdf] PDF export requires Chrome offscreen document API. Your browser may not support it.');
-        return;
-    }
-
-    try {
-        // Check if an offscreen document is already available.
-        if (await chrome.offscreen.hasDocument()) {
-            console.log("[pdf] Offscreen document already exists. Sending message.");
-            chrome.runtime.sendMessage({
-                action: 'createPdfOffscreen',
-                imageUrls: sources,
-                mangaTitle,
-                chapter,
-                chapterFolderName,
-            });
-            return;
-        }
-
-        // If we're in the process of creating a document, wait for it to finish.
-        if (creating) {
-            console.log("[pdf] Waiting for offscreen document creation...");
-            await creating;
-        } else {
-            console.log("[pdf] Creating offscreen document...");
-            creating = chrome.offscreen.createDocument({
-                url: 'offscreen.html',
-                reasons: ['BLOBS'],
-                justification: 'Needed to convert images to PDF format.',
-            }).catch(error => {
-                creating = null;
-                throw error;
-            });
-            await creating;
-            creating = null; // Reset the promise
-        }
-
-        console.log("[pdf] Offscreen document created. Sending message with", sources.length, "images.");
-        // Now that the document is confirmed to exist, send the message
-        chrome.runtime.sendMessage({
-            action: 'createPdfOffscreen',
-            imageUrls: sources,
-            mangaTitle,
-            chapter,
-            chapterFolderName,
-        });
-    } catch (error) {
-        console.error('[pdf] Failed to create offscreen document:', error);
-    }
+  const workers = Array.from({ length: Math.min(concurrency, total) }, () => worker());
+  await Promise.all(workers);
 }
 
 async function downloadImageWithRetry(url, filename, retries) {
-  try {
-    await new Promise((resolve, reject) => {
-      chrome.downloads.download({ url, filename, conflictAction: 'overwrite' }, (downloadId) => {
-        if (chrome.runtime.lastError) {
-          return reject(chrome.runtime.lastError);
-        }
-        // Monitor download status
-        const downloadListener = (delta) => {
-          if (delta.id === downloadId && delta.state) {
-            if (delta.state.current === 'complete') {
-              chrome.downloads.onChanged.removeListener(downloadListener);
-              resolve();
-            } else if (delta.state.current === 'interrupted') {
-              chrome.downloads.onChanged.removeListener(downloadListener);
-              reject(new Error(`Download interrupted. Reason: ${delta.error.current}`));
-            }
-          }
-        };
-        chrome.downloads.onChanged.addListener(downloadListener);
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const blob = await imageSourceToBlob(url);
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(blob);
       });
-    });
-    console.log(`Successfully downloaded ${filename}`);
-  } catch (error) {
-    console.error(`Download failed for ${filename}:`, error.message);
-    if (retries > 0) {
-      console.log(`Retrying... (${retries} attempts left)`);
-      await new Promise(resolve => setTimeout(resolve, settings.retryDelay));
-      await downloadImageWithRetry(url, filename, retries - 1);
-    } else {
-      console.error(`All retries failed for ${filename}.`);
+
+      await new Promise((resolve, reject) => {
+        chrome.downloads.download({
+          url: dataUrl,
+          filename,
+          conflictAction: 'overwrite',
+        }, (downloadId) => {
+          if (chrome.runtime.lastError) return reject(chrome.runtime.lastError);
+          const listener = (delta) => {
+            if (delta.id === downloadId && delta.state) {
+              if (delta.state.current === 'complete') {
+                chrome.downloads.onChanged.removeListener(listener);
+                resolve();
+              } else if (delta.state.current === 'interrupted') {
+                chrome.downloads.onChanged.removeListener(listener);
+                reject(new Error(`Interrupted: ${delta.error?.current}`));
+              }
+            }
+          };
+          chrome.downloads.onChanged.addListener(listener);
+        });
+      });
+      return; // success
+
+    } catch (err) {
+      if (attempt < retries) {
+        await new Promise(r => setTimeout(r, settings.retryDelay));
+      } else {
+        throw err;
+      }
     }
+  }
+}
+
+// ============================================================
+//  ZIP Archive
+// ============================================================
+function dataUrlToBlob(dataUrl) {
+  const [header, base64 = ''] = dataUrl.split(',');
+  const mime = header.match(/^data:(.*?);base64$/i)?.[1] || 'image/jpeg';
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+}
+
+async function imageSourceToBlob(source) {
+  if (source.startsWith('data:')) return dataUrlToBlob(source);
+  // CDN images require User-Agent + Referer headers
+  const response = await fetch(source, {
+    mode: 'cors',
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Referer': 'https://mangadex.org/',
+      'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+    },
+  });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return response.blob();
+}
+
+function getBlobExtension(blob, source) {
+  const mime = blob.type || '';
+  const ext = mime.split('/')[1];
+  if (ext) return ext === 'jpeg' ? 'jpg' : ext;
+  try {
+    const e = new URL(source).pathname.split('.').pop();
+    if (e && e.length <= 5) return e.toLowerCase();
+  } catch (_) {}
+  return 'bin';
+}
+
+function downloadBlob(blob, filename) {
+  const reader = new FileReader();
+  reader.onload = function () {
+    chrome.downloads.download({
+      url: reader.result,
+      filename,
+      conflictAction: 'overwrite',
+    }, (downloadId) => {
+      if (chrome.runtime.lastError) {
+        console.error(`Failed to download ${filename}:`, chrome.runtime.lastError.message);
+      }
+    });
+  };
+  reader.onerror = function () {
+    console.error(`Failed to prepare ${filename} for download:`, reader.error);
+  };
+  reader.readAsDataURL(blob);
+}
+
+async function createArchive(imageUrls, mangaTitle, chapter, type) {
+  try {
+    const zip = new JSZip();
+    const folderName = buildChapterFolderName(chapter.name, chapter.chapterNumber, settings.includeChapterNumber);
+    const folder = zip.folder(folderName);
+    const sources = imageUrls.filter(s => typeof s === 'string' && s.trim());
+
+    const concurrency = settings.concurrentImages || 5;
+    let idx = 0;
+
+    const processNext = async () => {
+      while (idx < sources.length) {
+        const i = idx++;
+        try {
+          const blob = await imageSourceToBlob(sources[i]);
+          const ext = getBlobExtension(blob, sources[i]);
+          folder.file(`${String(i + 1).padStart(3, '0')}.${ext}`, blob);
+        } catch (err) {
+          console.warn(`[zip] Failed image ${i + 1}:`, err);
+        }
+      }
+    };
+
+    await Promise.all(Array.from({ length: concurrency }, () => processNext()));
+
+    const zipBlob = await zip.generateAsync({ type: 'blob' });
+    const filename = `${sanitize(mangaTitle)} - ${folderName}.${type}`;
+    downloadBlob(zipBlob, filename);
+  } catch (err) {
+    console.error(`[zip] Failed:`, err);
+  }
+}
+
+// ============================================================
+//  PDF (Offscreen Document)
+// ============================================================
+let creating;
+
+async function createPdfOffscreen(imageUrls, mangaTitle, chapter) {
+  const sources = imageUrls.filter(s => typeof s === 'string' && s.trim());
+  if (sources.length === 0) return;
+
+  const folderName = buildChapterFolderName(chapter.name, chapter.chapterNumber, settings.includeChapterNumber);
+
+  if (!chrome.offscreen?.createDocument || !chrome.offscreen?.hasDocument) {
+    console.error('[pdf] Offscreen API not available');
+    return;
+  }
+
+  try {
+    if (await chrome.offscreen.hasDocument()) {
+      chrome.runtime.sendMessage({
+        action: 'createPdfOffscreen',
+        imageUrls: sources,
+        mangaTitle,
+        chapter,
+        chapterFolderName: folderName,
+      });
+      return;
+    }
+
+    if (creating) {
+      await creating;
+    } else {
+      creating = chrome.offscreen.createDocument({
+        url: 'offscreen.html',
+        reasons: ['BLOBS'],
+        justification: 'Convert images to PDF.',
+      }).catch(err => { creating = null; throw err; });
+      await creating;
+      creating = null;
+    }
+
+    chrome.runtime.sendMessage({
+      action: 'createPdfOffscreen',
+      imageUrls: sources,
+      mangaTitle,
+      chapter,
+      chapterFolderName: folderName,
+    });
+  } catch (err) {
+    console.error('[pdf] Failed:', err);
   }
 }

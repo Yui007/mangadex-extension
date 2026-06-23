@@ -1,80 +1,125 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+  <meta charset="UTF-8">
   <title>MangaDex Downloader</title>
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <div class="tab-bar">
-    <button class="tab-link active" data-tab="mainView">Download</button>
-    <button class="tab-link" data-tab="settingsView">Settings</button>
-  </div>
 
-  <div id="mainView" class="tab-content active">
-    <button id="downloadChapterBtn" style="display: none;">Download Current Chapter</button>
-    <div id="mangaView" style="display: none;">
-      <select id="languageSelect">
-        <option value="gb">English</option>
-        <option value="br">Portuguese (Br)</option>
-        <option value="ru">Russian</option>
-        <option value="es-la">Spanish (LATAM)</option>
-        <option value="fr">French</option>
-        <option value="id">Indonesian</option>
-        <option value="vn">Vietnamese</option>
-      </select>
-      <div id="chapterControls">
-        <div class="select-all-row">
-          <input type="checkbox" id="selectAllCheckbox">
-          <label for="selectAllCheckbox">Select All</label>
-        </div>
-        <span id="selectionCounter">0 selected</span>
-      </div>
-      <div id="chapterList"></div>
-      <button id="downloadSelectedBtn" disabled>Download Selected</button>
-    </div>
-    <div id="status">Ready</div>
-  </div>
+  <!-- ====== Tab Navigation ====== -->
+  <nav class="tabs">
+    <button class="tab active" data-tab="downloadView">
+      <span class="tab-icon">⬇</span>
+      <span class="tab-label">Download</span>
+    </button>
+    <button class="tab" data-tab="settingsView">
+      <span class="tab-icon">⚙</span>
+      <span class="tab-label">Settings</span>
+    </button>
+  </nav>
 
-  <div id="settingsView" class="tab-content">
-    <div class="setting-item">
-        <label for="downloadAs">Download As</label>
-        <select id="downloadAs">
-            <option value="images">Images</option>
-            <option value="zip">ZIP</option>
-            <option value="pdf">PDF</option>
+  <!-- ====== Download Tab ====== -->
+  <section id="downloadView" class="panel active">
+
+    <!-- Chapter-page quick-download button -->
+    <button id="downloadChapterBtn" class="btn btn-primary" hidden>
+      <span>⬇</span> Download Current Chapter
+    </button>
+
+    <!-- Manga title page: full chapter selector -->
+    <div id="mangaView" hidden>
+      <div class="lang-row">
+        <label class="lang-label" for="languageSelect">🌐 Language</label>
+        <select id="languageSelect" class="sel">
+          <option value="gb">English</option>
+          <option value="br">Português (BR)</option>
+          <option value="ru">Русский</option>
+          <option value="es-la">Español (LATAM)</option>
+          <option value="fr">Français</option>
+          <option value="id">Bahasa Indonesia</option>
+          <option value="vn">Tiếng Việt</option>
         </select>
+      </div>
+
+      <div class="chapter-toolbar">
+        <label class="check-all">
+          <input type="checkbox" id="selectAllCheckbox">
+          <span class="checkmark"></span>
+          <span class="check-label">Select All</span>
+        </label>
+        <span id="selectionCounter" class="sel-count">0 selected</span>
+      </div>
+
+      <div id="chapterList" class="ch-list"></div>
+
+      <button id="downloadSelectedBtn" class="btn btn-accent" disabled>
+        <span>⬇</span> Download Selected
+      </button>
     </div>
-    <div class="setting-item">
-      <label for="concurrentChapters">Concurrent Chapters</label>
-      <input type="number" id="concurrentChapters" min="1" max="10">
+
+    <!-- Progress -->
+    <div id="progressContainer" class="progress-wrap" hidden>
+      <div class="progress-track">
+        <div id="progressBar" class="progress-fill" style="width:0%"></div>
+      </div>
+      <div class="progress-text" id="progressText">Initializing…</div>
     </div>
-    <div class="setting-item">
-      <label for="concurrentImages">Concurrent Images</label>
-      <input type="number" id="concurrentImages" min="1" max="20">
+
+    <div id="status" class="status">Ready</div>
+  </section>
+
+  <!-- ====== Settings Tab ====== -->
+  <section id="settingsView" class="panel">
+
+    <div class="setting">
+      <label class="setting-label">Format</label>
+      <select id="downloadAs" class="sel">
+        <option value="images">Images (folder)</option>
+        <option value="zip">ZIP / CBZ</option>
+        <option value="pdf">PDF</option>
+      </select>
     </div>
-    <div class="setting-item">
-      <label for="retryCount">Retry Count</label>
-      <input type="number" id="retryCount" min="0" max="10">
+
+    <div class="setting">
+      <label class="setting-label">Concurrent Chapters</label>
+      <input type="number" id="concurrentChapters" class="num-input" min="1" max="10" value="3">
     </div>
-    <div class="setting-item">
-      <label for="retryDelay">Retry Delay (ms)</label>
-      <input type="number" id="retryDelay" min="500" step="100">
+
+    <div class="setting">
+      <label class="setting-label">Concurrent Images</label>
+      <input type="number" id="concurrentImages" class="num-input" min="1" max="20" value="5">
     </div>
-    <div class="setting-item">
-      <label for="stabilityChecks">Stability Checks</label>
-      <input type="number" id="stabilityChecks" min="1" max="40">
+
+    <div class="setting">
+      <label class="setting-label">Retry Count</label>
+      <input type="number" id="retryCount" class="num-input" min="0" max="10" value="3">
     </div>
-    <div class="setting-item">
-        <label for="overallTimeoutSeconds">Overall Timeout (s)</label>
-        <input type="number" id="overallTimeoutSeconds" min="10" max="300">
+
+    <div class="setting">
+      <label class="setting-label">Retry Delay (ms)</label>
+      <input type="number" id="retryDelay" class="num-input" min="500" step="100" value="1000">
     </div>
-    <div class="setting-item checkbox-setting">
-        <label for="includeChapterNumber">Add chapter number to folder names</label>
+
+    <div class="setting toggle-row">
+      <span class="setting-label">Data Saver (57% smaller)</span>
+      <label class="toggle">
+        <input type="checkbox" id="dataSaver">
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+
+    <div class="setting toggle-row">
+      <span class="setting-label">Include Ch. Number in folder</span>
+      <label class="toggle">
         <input type="checkbox" id="includeChapterNumber">
+        <span class="toggle-slider"></span>
+      </label>
     </div>
-    <button id="saveSettingsBtn">Save Settings</button>
-    <div id="settingsStatus"></div>
-  </div>
+
+    <button id="saveSettingsBtn" class="btn btn-primary">Save Settings</button>
+    <div id="settingsStatus" class="settings-status"></div>
+  </section>
 
   <script src="settings.js"></script>
   <script src="popup.js"></script>

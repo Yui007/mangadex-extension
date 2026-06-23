@@ -1,18 +1,21 @@
 {
   "manifest_version": 3,
   "name": "MangaDex Downloader",
-  "version": "1.0",
-  "description": "Downloads chapters from MangaDex.",
+  "version": "2.0",
+  "description": "Downloads chapters from MangaDex via the official API.",
   "permissions": [
     "activeTab",
     "scripting",
     "downloads",
     "storage",
-    "offscreen"
+    "offscreen",
+    "declarativeNetRequest"
   ],
   "host_permissions": [
     "https://mangadex.org/*",
-    "https://uploads.mangadex.org/*"
+    "https://api.mangadex.org/*",
+    "https://uploads.mangadex.org/*",
+    "https://*.mangadex.network/*"
   ],
   "background": {
     "service_worker": "background.js"

@@ -1,77 +1,110 @@
-# MangaDex Downloader
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://capsule-render.vercel.app/api?type=waving&color=0:8b5cf6,100:34d399&height=200&section=header&text=MangaDex%20Downloader&fontSize=50&fontColor=fff&animation=fadeIn">
+  <img alt="MangaDex Downloader banner" src="https://capsule-render.vercel.app/api?type=waving&color=0:8b5cf6,100:34d399&height=200&section=header&text=MangaDex%20Downloader&fontSize=50&fontColor=fff&animation=fadeIn">
+</picture>
+</p>
 
-A powerful and customizable browser extension to download manga chapters from MangaDex in various formats.
+<p align="center">
+  <img src="extension.PNG" alt="Extension Screenshot">
+</p>
 
-![Extension Screenshot](extension.PNG)
+<p align="center">
+  <strong>A beautiful Chrome extension for downloading manga from MangaDex.</strong><br>
+  Batch download entire series with one click. Choose your format.<br>
+  All inside a sleek dark-themed popup.
+</p>
 
-## Features
+<p align="center">
+  <img alt="Chrome" src="https://img.shields.io/badge/Chrome-Extension-8b5cf6?logo=googlechrome&logoColor=white&style=for-the-badge">
+  <img alt="MV3" src="https://img.shields.io/badge/Manifest-V3-34d399?style=for-the-badge">
+</p>
 
--   **Multiple Download Formats:** Save chapters as individual **Images**, compressed **ZIP** archives, or portable **PDF** documents.
--   **Bulk & Single Chapter Downloads:** Quickly download the chapter you are currently viewing or queue multiple chapters for download from a manga's main page.
--   **Multi-Select Controls:** Use the **Select All** checkbox to toggle all chapters at once, or hold **Shift** while clicking to select a range of chapters between your last selection and the current one.
--   **Language Filtering:** Easily find and download chapters in your preferred language.
--   **Advanced Concurrency Control:** Fine-tune the number of simultaneous chapter and image downloads to match your network speed and system capabilities.
--   **Robust Download Engine:** Features an automatic retry mechanism for failed images and intelligent page-load detection to prevent incomplete downloads.
--   **Organized File Structure:** Chapters are saved into a clean, easy-to-navigate folder structure: `Manga Title/Chapter Name/`. You can optionally prefix chapter folders with `Ch.1 - `.
--   **Modern & Intuitive UI:** A sleek, dark-themed popup interface that is easy to use.
+---
 
-## Installation
+<p align="center">
+  <sub><em>Browse a manga on MangaDex → Open the extension → Pick your chapters → Download.</em></sub>
+</p>
 
-1.  **Download the code:** Download this repository as a ZIP file and extract it, or clone it from `https://github.com/Yui007/mangadex-extension`.
-2.  **Open Browser Extensions:**
-    -   **Chrome/Brave:** Navigate to `chrome://extensions`
-    -   **Edge:** Navigate to `edge://extensions`
-3.  **Enable Developer Mode:** Find and enable the "Developer mode" toggle, usually located in the top-right corner.
-4.  **Load the Extension:** Click the **"Load unpacked"** button and select the directory where you extracted/cloned the code.
+## ✨ Features
 
-The MangaDex Downloader icon will now appear in your browser's toolbar.
+| | Feature | |
+|---|---|---|
+| 📚 | **Batch download** — queue entire series at once | 🚀 |
+| 📦 | **Multiple formats** — images, ZIP/CBZ, or PDF | 🎨 |
+| ⚡ | **Data-saver mode** — 57% smaller files | ⚙️ |
+| 🌐 | **Multi-language** — EN, PT-BR, RU, ES, FR, ID, VN | 🖱️ |
+| 🎯 | **Shift+click select** — quickly pick chapter ranges | 🔄 |
+| 📊 | **Live progress** — see downloads in real-time | 🎨 |
+| 🌙 | **Dark theme** — easy on the eyes | |
 
-## How to Use
+## 🚀 Getting Started
 
-### Important Tip
- - Make Sure to Enable Long Strip in Mangadex For chapters otherwise the extension will not work.
+### Installation
 
-### On a Chapter Page (`mangadex.org/chapter/...`)
+```bash
+1. Open Chrome → chrome://extensions
+2. Enable Developer mode (toggle in top-right)
+3. Click "Load unpacked"
+4. Select the mangadex_extension/ folder
+5. Pin it to your toolbar for quick access
+```
 
-1.  Navigate to any manga chapter on MangaDex.
-2.  Click the extension icon in your toolbar.
-3.  Click the **"Download Current Chapter"** button. The chapter will be downloaded in the format specified in your settings.
+### How to Use
 
-### On a Manga Title Page (`mangadex.org/title/...`)
+1. **Go to any manga** on [MangaDex](https://mangadex.org) — title page or reader
+2. **Click the extension icon** in your toolbar
+3. **Pick a language** and check the chapters you want
+4. **Hit "Download Selected"** and watch it go
 
-1.  Navigate to the main page for any manga series.
-2.  Click the extension icon.
-3.  Use the **language dropdown** to filter the chapter list.
-4.  **Select chapters** using any of these methods:
-    -   **Individually:** Check the box next to each chapter you want.
-    -   **Select All:** Use the **"Select All"** checkbox at the top to check/uncheck all chapters at once.
-    -   **Range Select:** Check a chapter, then hold **Shift** and check another chapter — all chapters between them will be selected (or deselected) as well.
-5.  Click the **"Download Selected"** button. The chapters will be added to a queue and downloaded in the background.
+> 💡 On a chapter reader page? The extension shows a "Download Current Chapter" button — one click and you're done.
 
-## Settings
+## ⚙️ Settings
 
-Click the **"Settings"** tab in the extension popup to configure the following options:
+| Setting | What it does |
+|---|---|
+| **Format** | Save as images, ZIP/CBZ archive, or PDF |
+| **Concurrent Chapters** | How many chapters to download at once |
+| **Concurrent Images** | How many pages to download at once per chapter |
+| **Data Saver** | Smaller images (57% less data) |
+| **Chapter Number** | Add "Ch.X" to folder names |
 
--   **Download As:** Choose the format for your downloads:
-    -   `Images`: Saves each page as a separate image file (e.g., .png).
-    -   `ZIP`: Compresses the entire chapter into a single `.zip` file.
-    -   `PDF`: Compiles all chapter pages into a single `.pdf` document.
--   **Concurrent Chapters:** The number of chapters to process simultaneously (default: 3).
--   **Concurrent Images:** The number of images to download at the same time (for `Images` mode only, default: 5).
--   **Retry Count:** How many times to retry a failed image download (default: 3).
--   **Retry Delay (ms):** The wait time in milliseconds before a retry attempt (default: 1000).
--   **Stability Checks:** The number of 1-second intervals the page must be stable (no new images loading) before starting a download. Increase this if chapters are not fully loading.
--   **Overall Timeout (s):** The maximum time to wait for a chapter's images to load.
--   **Add Chapter Number to Folder Names:** Prefix downloaded chapter folders with `Ch.1 - Title` when the chapter number can be detected.
+## 📁 Project Structure
 
-Remember to click **"Save Settings"** after making any changes.
+```
+mangadex_extension/
+├── manifest.json          # Extension config
+├── background.js          # The engine — queues, downloads, ZIP/PDF
+├── popup.html             # Popup layout
+├── popup.css              # Popup styles — dark theme
+├── popup.js               # Popup logic — chapters, progress
+├── settings.js            # Settings helpers
+├── offscreen.html         # PDF rendering page
+├── offscreen.js           # PDF generation
+├── lib/                   # Third-party libraries
+│   ├── jszip.min.js
+│   └── jspdf.umd.min.js
+└── icons/                 # Extension icons
+```
 
-## Troubleshooting
+## 🛠 Built With
 
--   **Incomplete downloads or "No images found":** Try increasing the "Stability Checks" and "Overall Timeout (s)" values in the settings. This is often necessary for very long chapters or on slower connections.
--   **Browser blocking downloads:** The extension may trigger your browser's protection against downloading multiple files at once. If prompted, always choose to "Allow" the downloads.
--   **Extension not working:** Ensure you are on a valid `mangadex.org` chapter or title page and reload the page.
+<p align="center">
+  <img src="https://img.shields.io/badge/JavaScript-F7DF1E?logo=javascript&logoColor=000&style=flat-square" alt="JavaScript">
+  <img src="https://img.shields.io/badge/Chrome-4285F4?logo=googlechrome&logoColor=fff&style=flat-square" alt="Chrome APIs">
+  <img src="https://img.shields.io/badge/JSZip-FF6B6B?style=flat-square" alt="JSZip">
+  <img src="https://img.shields.io/badge/jsPDF-0ABF53?style=flat-square" alt="jsPDF">
+</p>
 
-## Contributing
+---
 
-Contributions are welcome! Feel free to open an issue or submit a pull request for any bugs, improvements, or feature suggestions on the [GitHub repository](https://github.com/Yui007/mangadex-extension).
+<p align="center">
+  <sub>Made for manga readers who want their chapters offline.</sub>
+</p>
+
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://capsule-render.vercel.app/api?type=waving&color=0:34d399,100:8b5cf6&height=120&section=footer">
+  <img alt="footer wave" src="https://capsule-render.vercel.app/api?type=waving&color=0:34d399,100:8b5cf6&height=120&section=footer">
+</picture>
+</p>
